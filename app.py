@@ -264,6 +264,76 @@ st.info(
     f"参考ロットはリスク確認用の目安です。実際の売買判断はご自身で行ってください。"
 )
 
+# --- ポジション確認 -----------------------------------------------------------
+st.divider()
+st.subheader("ポジション確認（日経先物）")
+st.caption(
+    "保有中ポジションの購入金額（建値）と売却注文金額を入力してください。"
+    "最新データ取得時点で先物の高値が売却注文金額に届いていれば ☆（決済された可能性）を表示します。"
+)
+
+pos_col1, pos_col2 = st.columns(2)
+with pos_col1:
+    entry_price = st.number_input(
+        "購入金額（建値）",
+        min_value=0.0,
+        value=0.0,
+        step=5.0,
+        format="%.1f",
+        help="先物を買った価格（日経平均の水準）を入力してください。0のままなら判定しません。",
+    )
+with pos_col2:
+    sell_order_price = st.number_input(
+        "売却注文金額",
+        min_value=0.0,
+        value=0.0,
+        step=5.0,
+        format="%.1f",
+        help="出している売り指値の価格を入力してください。0のままなら判定しません。",
+    )
+
+# スコア取得と同じデータソース（日経先物）を利用
+_, fut_data = fetch_with_fallback({"ticker": "NK=F", "fallback": "JP225.F"})
+
+if fut_data is None or fut_data.empty:
+    st.warning("日経先物のデータを取得できませんでした。時間をおいて再取得してください。")
+elif entry_price <= 0 and sell_order_price <= 0:
+    st.caption("※ 金額を入力すると判定が表示されます。")
+else:
+    fut_close = fut_data["Close"].dropna()
+    fut_high = fut_data["High"].dropna()
+    current_price = float(fut_close.iloc[-1])
+    # 直近の足（最新セッション）の高値で「注文価格に届いたか」を判定
+    session_high = float(fut_high.iloc[-1])
+
+    rc1, rc2, rc3 = st.columns(3)
+    with rc1:
+        st.metric("現在値（先物）", f"{current_price:,.1f}")
+    with rc2:
+        if entry_price > 0:
+            pnl = current_price - entry_price
+            st.metric("建値との差", f"{pnl:+,.1f}", delta=f"{pnl:+,.1f}")
+        else:
+            st.metric("建値との差", "—")
+    with rc3:
+        if sell_order_price > 0:
+            reached = session_high >= sell_order_price
+            st.metric("売却注文", "☆ 到達" if reached else "未到達")
+        else:
+            st.metric("売却注文", "—")
+
+    if sell_order_price > 0:
+        if session_high >= sell_order_price:
+            st.success(
+                f"☆ 売却注文価格 {sell_order_price:,.1f} に到達しました"
+                f"（直近高値 {session_high:,.1f}）。決済された可能性があります。"
+            )
+        else:
+            st.info(
+                f"売却注文価格 {sell_order_price:,.1f} は未到達です"
+                f"（直近高値 {session_high:,.1f}）。"
+            )
+
 st.subheader("市場環境チェック")
 
 display_df = df.copy()
