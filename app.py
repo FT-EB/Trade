@@ -1,7 +1,31 @@
+import json
+import os
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
+
+# 入力したポジション情報を保存するファイル（アプリが起動している間は保持されます）
+POSITION_STATE_FILE = os.path.join("/tmp", "position_state.json")
+
+
+def load_position():
+    """保存済みの購入金額・売却注文金額を読み込む。なければ0を返す。"""
+    try:
+        with open(POSITION_STATE_FILE, "r") as f:
+            data = json.load(f)
+        return float(data.get("entry", 0.0)), float(data.get("sell", 0.0))
+    except Exception:
+        return 0.0, 0.0
+
+
+def save_position(entry: float, sell: float):
+    """購入金額・売却注文金額をファイルに保存する。"""
+    try:
+        with open(POSITION_STATE_FILE, "w") as f:
+            json.dump({"entry": entry, "sell": sell}, f)
+    except Exception:
+        pass
 
 st.set_page_config(
     page_title="Market Score Monitor",
@@ -270,27 +294,47 @@ st.subheader("ポジション確認（日経先物）")
 st.caption(
     "保有中ポジションの購入金額（建値）と売却注文金額を入力してください。"
     "最新データ取得時点で先物の高値が売却注文金額に届いていれば ☆（決済された可能性）を表示します。"
+    "入力した値はアプリが起動している間は保存され、開き直しても復元されます。"
 )
+
+# 保存済みの値を読み込んで初期値にする
+loaded_entry, loaded_sell = load_position()
+if "entry_price" not in st.session_state:
+    st.session_state["entry_price"] = loaded_entry
+if "sell_order_price" not in st.session_state:
+    st.session_state["sell_order_price"] = loaded_sell
 
 pos_col1, pos_col2 = st.columns(2)
 with pos_col1:
     entry_price = st.number_input(
         "購入金額（建値）",
         min_value=0.0,
-        value=0.0,
         step=5.0,
         format="%.1f",
+        key="entry_price",
         help="先物を買った価格（日経平均の水準）を入力してください。0のままなら判定しません。",
     )
 with pos_col2:
     sell_order_price = st.number_input(
         "売却注文金額",
         min_value=0.0,
-        value=0.0,
         step=5.0,
         format="%.1f",
+        key="sell_order_price",
         help="出している売り指値の価格を入力してください。0のままなら判定しません。",
     )
+
+# 入力が変わったらファイルに保存
+if entry_price != loaded_entry or sell_order_price != loaded_sell:
+    save_position(entry_price, sell_order_price)
+
+# ポジション解消時などに入力をリセット
+if st.button("入力をクリア"):
+    save_position(0.0, 0.0)
+    for _k in ["entry_price", "sell_order_price"]:
+        if _k in st.session_state:
+            del st.session_state[_k]
+    st.rerun()
 
 # スコア取得と同じデータソース（日経先物）を利用
 _, fut_data = fetch_with_fallback({"ticker": "NK=F", "fallback": "JP225.F"})
